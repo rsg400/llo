@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TennisTrack – Detector (MediaPipe, CDN only)</title>
+  <style>
+    :root{ --bg:#0e0f13; --panel:#141720; --muted:#5b6170; --accent:#59f08c; --danger:#ff5a6a; --warn:#ffd166; --ok:#6be675 }
+    html,body{height:100%; margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica Neue,Arial;background:var(--bg);color:#e7ecf5}
+    .wrap{display:grid; grid-template-rows:auto 1fr auto; height:100%}
+    header{position:sticky; top:0; z-index:10; background:linear-gradient(180deg, rgba(20,23,32,.95), rgba(20,23,32,.7)); backdrop-filter:saturate(150%) blur(6px); border-bottom:1px solid #20263a}
+    header .row{display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; padding:.6rem .8rem}
+    header .row>*{margin-right:.4rem}
+    select,button,input[type="number"],input[type="text"]{background:#0f1320; color:#e7ecf5; border:1px solid #25304d; border-radius:.6rem; padding:.45rem .6rem; outline:none}
+    button{cursor:pointer}
+    button.primary{background:#19243b; border-color:#2d3f6d}
+    button.success{background:#13301b; border-color:#1b5e2a}
+    button.warn{background:#3a2a00; border-color:#5b4300}
+    button.danger{background:#3b1520; border-color:#6d2433}
+    button:disabled,select:disabled{opacity:.5; cursor:not-allowed}
+    .toggle{display:inline-flex; gap:.35rem; align-items:center}
+    .toggle input{accent-color:var(--accent)}
+    .kpi{display:flex; gap:1rem; align-items:center; font-variant-numeric:tabular-nums}
+    .kpi .chip{background:#0f1320; border:1px solid #2a3150; border-radius:.6rem; padding:.3rem .5rem}
+    .kpi strong{color:var(--accent)}
+    main{display:grid; grid-template-columns:1fr 320px; gap:12px; padding:12px}
+    @media (max-width:1100px){main{grid-template-columns:1fr} aside{order:-1}}
+    .stage{position:relative; width:100%; height:calc(100vh - 190px); min-height:340px; background:#0b0d12; border:1px solid #1b2033; border-radius:16px; overflow:hidden}
+    video{position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:#000}
+    canvas#overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:auto}
+    aside{background:var(--panel); border:1px solid #1b2033; border-radius:16px; padding:12px; display:flex; flex-direction:column; gap:10px}
+    aside h3{margin:.2rem 0 .2rem; color:#b9c3df}
+    .row{display:flex; gap:8px; align-items:center}
+    .grid{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+    .hud{display:grid; grid-template-columns:1fr; gap:6px; background:#0f1320; border:1px solid #263456; border-radius:12px; padding:10px}
+    .hud .line{display:flex; justify-content:space-between; font-variant-numeric:tabular-nums; color:#c9d4f1}
+    .badge{display:inline-flex; align-items:center; gap:.35rem; border:1px solid #2a3150; background:#101627; border-radius:999px; padding:.2rem .55rem; font-size:.9rem}
+    .badge .dot{width:.55rem; height:.55rem; border-radius:50%}
+    footer{padding:.6rem .8rem; color:#98a3bd; font-size:.9rem; border-top:1px solid #20263a}
+    a{color:#8ec8ff}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="row">
+      <button id="btnStart" class="primary" disabled>▶️ Kamera starten</button>
+      <button id="btnStop" class="danger" disabled>⏹ Kamera stoppen</button>
+      <select id="cameraSelect" title="Kamera wählen"></select>
+      <button id="btnSwitch" title="Front/Back wechseln">🔁</button>
+      <select id="resSelect" title="Auflösung">
+        <option value="640x480">640×480</option>
+        <option value="1280x720" selected>1280×720</option>
+        <option value="1920x1080">1920×1080</option>
+      </select>
+      <span class="badge" id="detBadge"><span class="dot" style="background:#888"></span> Detector: lädt…</span>
+      <span class="badge" id="fpsBadge"><span class="dot" style="background:#59f08c"></span> <span id="fps">0</span> FPS</span>
+      <div class="kpi">
+        <span class="chip">v = <strong id="speed">0</strong> km/h</span>
+        <span class="chip">r = <span id="radius">0</span> px</span>
+      </div>
+      <div class="toggle"><input type="checkbox" id="chkShowBoxes"><label for="chkShowBoxes">Box anzeigen</label></div>
+    </div>
+    <div class="row">
+      <button id="btnMarkCourt">🟩 Court markieren (4 Punkte)</button>
+      <button id="btnCalibrate">📏 Kalibrieren (Linie)</button>
+      <input id="knownMeters" type="number" step="0.1" value="6.4" style="width:90px" title="bekannte Länge (m)"/>
+      <button id="btnResetScores">🔄 Scores zurücksetzen</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <aside>
+      <h3>HUD</h3>
+      <div class="hud">
+        <div class="line"><span>Status</span> <span id="status">Init…</span></div>
+        <div class="line"><span>Model</span> <span id="modelInfo">—</span></div>
+        <div class="line"><span>Pixel↔︎Meter</span> <span id="pxm">—</span></div>
+        <div class="line"><span>Letzter Bounce</span> <span id="bounce">—</span></div>
+      </div>
+
+      <h3>Scoreboard</h3>
+      <div class="grid">
+        <div class="hud">
+          <div class="line"><strong>Spieler A</strong> <strong id="scoreA">0</strong></div>
+          <button id="btnAPlus">+ Punkt A</button>
+        </div>
+        <div class="hud">
+          <div class="line"><strong>Spieler B</strong> <strong id="scoreB">0</strong></div>
+          <button id="btnBPlus">+ Punkt B</button>
+        </div>
+      </div>
+      <div class="row"><div class="toggle"><input type="checkbox" id="chkSwap"><label for="chkSwap">Seiten tauschen (A oben)</label></div></div>
+
+      <h3>Tipps</h3>
+      <ul style="margin-top:0; color:#a8b2cb">
+        <li>⚠️ Nicht per Datei öffnen. Starte über <code>http://localhost</code>.</li>
+        <li>🟩 Court: Klicke TL → TR → BR → BL.</li>
+        <li>📏 Kalibrieren: Linie entlang bekannter Distanz ziehen.</li>
+      </ul>
+    </aside>
+  </main>
+
+  <footer>
+    <span>MediaPipe ObjectDetector (EfficientDet), CDN‑only. Bounce‑Erkennung & Auto‑Scoring (MVP).</span>
+  </footer>
+</div>
+
+<!-- MediaPipe Loader: nur CDN, kein Local Fallback -->
+<script type="module">
+  import { FilesetResolver, ObjectDetector } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10";
+
+  const detBadge = document.getElementById('detBadge');
+  const statusEl = document.getElementById('status');
+  const modelInfoEl = document.getElementById('modelInfo');
+  const btnStart = document.getElementById('btnStart');
+  const btnStop = document.getElementById('btnStop');
+  const setBadge = (html)=> detBadge && (detBadge.innerHTML = html);
+
+  let detector = null; let running = false; let capReady = false;
+
+  async function initDetector(){
+    try{
+      const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm");
+      detector = await ObjectDetector.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" },
+        scoreThreshold: 0.25,
+        categoryAllowlist: ['sports ball'],
+        runningMode: 'VIDEO'
+      });
+      setBadge('<span class="dot" style="background:#59f08c"></span> Detector: bereit');
+      modelInfoEl.textContent = `CDN • EfficientDet Lite0`;
+      btnStart.disabled = false; statusEl.textContent = 'Bereit';
+    }catch(e){
+      console.error(e);
+      setBadge('<span class="dot" style="background:#ff5a6a"></span> Detector: Fehler');
+      statusEl.textContent = 'Detector konnte nicht geladen werden (CDN).';
+    }
+  }
+  initDetector();
+
+  // ===== App‑Logik (ohne OpenCV) =====
+  const video = document.getElementById('video');
+  const overlay = document.getElementById('overlay');
+  const octx = overlay.getContext('2d');
+  const cameraSelect = document.getElementById('cameraSelect');
+  const btnSwitch = document.getElementById('btnSwitch');
+  const resSelect = document.getElementById('resSelect');
+  const chkShowBoxes = document.getElementById('chkShowBoxes');
+  const fpsEl = document.getElementById('fps');
+  const speedEl = document.getElementById('speed');
+  const radiusEl = document.getElementById('radius');
+  const btnMarkCourt = document.getElementById('btnMarkCourt');
+  const btnCalibrate = document.getElementById('btnCalibrate');
+  const knownMetersInput = document.getElementById('knownMeters');
+  const btnResetScores = document.getElementById('btnResetScores');
+  const scoreAEl = document.getElementById('scoreA');
+  const scoreBEl = document.getElementById('scoreB');
+  const chkSwap = document.getElementById('chkSwap');
+  const pxmEl = document.getElementById('pxm');
+  const bounceEl = document.getElementById('bounce');
+
+  let stream=null, animHandle=null;
+  let courtPoly=[]; let calib={pixelsPerMeter:0,a:null,b:null};
+  let lastPos=null, trail=[], MAX_TRAIL=40; let pxPerMeter=0;
+  let speedKmh=0; let fps=0, frameCount=0, fpsTimer=performance.now();
+  let vyPrev=null, lastBounceT=0, BOUNCE_COOLDOWN=250; let lastBounce=null, lastBounceSide=null, prevBounceSide=null;
+  let scoreA=0, scoreB=0;
+
+  function resizeOverlay(){ const rect=video.getBoundingClientRect(); const dpr=window.devicePixelRatio||1; overlay.width=Math.floor(rect.width*dpr); overlay.height=Math.floor(rect.height*dpr); overlay.style.width=rect.width+'px'; overlay.style.height=rect.height+'px'; octx.setTransform(dpr,0,0,dpr,0,0);} window.addEventListener('resize', resizeOverlay);
+  async function listCameras(){ try{ const devs=await navigator.mediaDevices.enumerateDevices(); const vids=devs.filter(d=>d.kind==='videoinput'); cameraSelect.innerHTML=''; vids.forEach((d,i)=>{ const o=document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||`Kamera ${i+1}`; cameraSelect.appendChild(o); }); }catch(e){ console.warn(e); }}
+  function parseRes(v){ const [w,h]=v.split('x').map(Number); return {width:w,height:h}; }
+
+  async function startCamera(){ if(!detector){ alert('Detector ist nicht bereit.'); return; } stopCamera(); const {width,height}=parseRes(resSelect.value); const constraints={ audio:false, video:{ width:{ideal:width}, height:{ideal:height}, deviceId: cameraSelect.value?{exact:cameraSelect.value}:undefined, frameRate:{ideal:60,max:60} } }; try{ stream=await navigator.mediaDevices.getUserMedia(constraints); video.srcObject=stream; await video.play(); await listCameras(); resizeOverlay(); capReady=true; running=true; btnStart.disabled=true; btnStop.disabled=false; statusEl.textContent='Kamera läuft'; loop(); }catch(e){ console.error(e); alert('Kamera konnte nicht gestartet werden: '+e.message); statusEl.textContent='Kamerafehler'; }}
+  function stopCamera(){ running=false; btnStart.disabled=false; btnStop.disabled=true; if(animHandle) cancelAnimationFrame(animHandle); if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } }
+
+  btnStart.addEventListener('click', startCamera); btnStop.addEventListener('click', stopCamera);
+  btnSwitch.addEventListener('click', ()=>{ const opts=[...cameraSelect.options]; if(opts.length<2) return; cameraSelect.selectedIndex=(cameraSelect.selectedIndex+1)%opts.length; if(stream) startCamera(); });
+  resSelect.addEventListener('change', ()=>{ if(stream) startCamera(); });
+  navigator.mediaDevices?.getUserMedia?.({video:true,audio:false}).then(s=>{ s.getTracks().forEach(t=>t.stop()); listCameras(); }).catch(()=>{});
+
+  btnMarkCourt.addEventListener('click', ()=>{ courtPoly=[]; hoverPt=null; mode='court'; statusEl.textContent='Court: TL→TR→BR→BL'; drawOverlay(); });
+  btnCalibrate.addEventListener('click', ()=>{ calib.a=null; calib.b=null; mode='calib'; statusEl.textContent='Kalibrierung: Linie ziehen'; });
+  btnResetScores.addEventListener('click', ()=>{ scoreA=0; scoreB=0; updateScores(); });
+  const Modes={NONE:'none', COURT:'court', CALIB:'calib'}; let mode=Modes.NONE; let dragging=false; let hoverPt=null;
+
+  function updateScores(){ scoreAEl.textContent=scoreA; scoreBEl.textContent=scoreB; }
+  function eventToVideoXY(ev){ const r=overlay.getBoundingClientRect(); const x=(ev.clientX-r.left)*(video.videoWidth/r.width); const y=(ev.clientY-r.top)*(video.videoHeight/r.height); return {x,y}; }
+  overlay.addEventListener('pointerdown', e=>{ if(mode===Modes.CALIB){ dragging=true; calib.a=eventToVideoXY(e); calib.b=calib.a; drawOverlay(); } });
+  overlay.addEventListener('pointermove', e=>{ if(mode===Modes.CALIB && dragging){ calib.b=eventToVideoXY(e); drawOverlay(); } else if(mode===Modes.COURT){ hoverPt=eventToVideoXY(e); drawOverlay(); } });
+  overlay.addEventListener('pointerleave', ()=>{ if(mode===Modes.COURT){ hoverPt=null; drawOverlay(); } });
+  overlay.addEventListener('pointerup', ()=>{ if(mode===Modes.CALIB && dragging){ dragging=false; if(calib.a&&calib.b){ const px=Math.hypot(calib.a.x-calib.b.x, calib.a.y-calib.b.y); const meters=parseFloat(knownMetersInput.value)||6.4; pxPerMeter=px/meters; calib.pixelsPerMeter=pxPerMeter; pxmEl.textContent=`${px.toFixed(1)} px / ${meters} m → ${pxPerMeter.toFixed(1)} px/m`; mode=Modes.NONE; statusEl.textContent='Kalibrierung gespeichert'; } } });
+  overlay.addEventListener('click', e=>{ if(mode===Modes.COURT){ courtPoly.push(eventToVideoXY(e)); drawOverlay(); if(courtPoly.length===4){ mode=Modes.NONE; statusEl.textContent='Court gespeichert'; } } });
+  overlay.addEventListener('contextmenu', e=>{ if(mode===Modes.COURT){ e.preventDefault(); courtPoly.pop(); drawOverlay(); } });
+
+  function sideBelongsToA(side){
+    const aTop = chkSwap.checked;
+    return (side === 'top' && aTop) || (side === 'bottom' && !aTop);
+  }
+
+  function isPointInPoly(pt, poly){
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      const intersect = ((yi > pt.y) !== (yj > pt.y)) &&
+        pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function drawOverlay(){
+    octx.clearRect(0,0,overlay.width,overlay.height);
+
+    if (courtPoly.length){
+      octx.strokeStyle = 'rgba(0,255,0,.8)';
+      octx.lineWidth = 2;
+      octx.beginPath();
+      courtPoly.forEach((p,i)=>{ i?octx.lineTo(p.x,p.y):octx.moveTo(p.x,p.y); });
+      if (courtPoly.length === 4) octx.closePath();
+      octx.stroke();
+
+      octx.fillStyle = 'rgba(0,255,0,.9)';
+      octx.font = '12px sans-serif';
+      courtPoly.forEach((p,i)=>{
+        octx.beginPath();
+        octx.arc(p.x,p.y,5,0,Math.PI*2);
+        octx.fill();
+        octx.fillStyle = '#000';
+        octx.fillText(String(i+1), p.x-3, p.y+4);
+        octx.fillStyle = 'rgba(0,255,0,.9)';
+      });
+    }
+
+    if (mode===Modes.COURT && hoverPt){
+      octx.strokeStyle = 'rgba(0,255,0,.5)';
+      octx.beginPath();
+      octx.moveTo(hoverPt.x-6, hoverPt.y);
+      octx.lineTo(hoverPt.x+6, hoverPt.y);
+      octx.moveTo(hoverPt.x, hoverPt.y-6);
+      octx.lineTo(hoverPt.x, hoverPt.y+6);
+      octx.stroke();
+    }
+
+    if (calib.a && calib.b){
+      octx.strokeStyle = 'rgba(255,255,0,.8)';
+      octx.lineWidth = 2;
+      octx.beginPath();
+      octx.moveTo(calib.a.x, calib.a.y);
+      octx.lineTo(calib.b.x, calib.b.y);
+      octx.stroke();
+    }
+
+    if (trail.length){
+      octx.strokeStyle = 'rgba(89,240,140,.6)';
+      octx.lineWidth = 2;
+      octx.beginPath();
+      trail.forEach((p,i)=>{ i?octx.lineTo(p.x,p.y):octx.moveTo(p.x,p.y); });
+      octx.stroke();
+    }
+
+    if (lastPos){
+      octx.fillStyle = 'rgba(89,240,140,.8)';
+      octx.beginPath();
+      octx.arc(lastPos.x,lastPos.y,4,0,Math.PI*2);
+      octx.fill();
+    }
+
+    if (lastBounce){
+      octx.fillStyle = 'rgba(255,209,102,.9)';
+      octx.beginPath();
+      octx.arc(lastBounce.x,lastBounce.y,6,0,Math.PI*2);
+      octx.fill();
+    }
+
+    if (chkShowBoxes.checked && lastDetection){
+      const b = lastDetection;
+      octx.strokeStyle = 'rgba(255,0,0,.7)';
+      octx.lineWidth = 1;
+      octx.strokeRect(b.xMin,b.yMin,b.width,b.height);
+    }
+  }
+
+  let lastDetection = null;
+
+  async function loop(){
+    if (!running) return;
+    if (video.readyState < 2){
+      animHandle = requestAnimationFrame(loop);
+      return;
+    }
+
+    const now = performance.now();
+    const result = await detector.detectForVideo(video, now);
+
+    if (result.detections.length){
+      const d = result.detections[0];
+      const box = d.boundingBox;
+      const x = box.originX * video.videoWidth;
+      const y = box.originY * video.videoHeight;
+      const w = box.width * video.videoWidth;
+      const h = box.height * video.videoHeight;
+      const cx = x + w/2;
+      const cy = y + h/2;
+      const r = Math.max(w,h) / 2;
+      radiusEl.textContent = r.toFixed(1);
+
+      lastDetection = {
+        xMin: x,
+        yMin: y,
+        width: w,
+        height: h
+      };
+
+      if (lastPos){
+        const dt = (now - lastPos.t) / 1000;
+        const dx = cx - lastPos.x;
+        const dy = cy - lastPos.y;
+        const distPx = Math.hypot(dx, dy);
+
+        if (pxPerMeter > 0 && dt > 0){
+          const distM = distPx / pxPerMeter;
+          const speedMs = distM / dt;
+          speedKmh = speedMs * 3.6;
+          speedEl.textContent = speedKmh.toFixed(1);
+        }
+
+        const vy = dy / dt;
+        if (vyPrev !== null && vyPrev > 0 && vy < 0 && (now - lastBounceT) > BOUNCE_COOLDOWN){
+          lastBounceT = now;
+          lastBounce = {x:cx, y:cy};
+          bounceEl.textContent = new Date().toLocaleTimeString();
+
+          const side = cy < video.videoHeight / 2 ? 'top' : 'bottom';
+          const inCourt = courtPoly.length === 4 && isPointInPoly({x:cx,y:cy}, courtPoly);
+
+          if (!inCourt || (prevBounceSide && prevBounceSide === side)){
+            if (sideBelongsToA(side)) scoreB++; else scoreA++;
+            updateScores();
+          }
+          prevBounceSide = side;
+        }
+        vyPrev = vy;
+      } else {
+        vyPrev = null;
+      }
+
+      lastPos = {x:cx, y:cy, t:now};
+      trail.push({x:cx, y:cy});
+      if (trail.length > MAX_TRAIL) trail.shift();
+    } else {
+      lastPos = null;
+      vyPrev = null;
+    }
+
+    frameCount++;
+    if (now - fpsTimer > 1000){
+      fps = frameCount;
+      fpsEl.textContent = fps.toFixed(0);
+      frameCount = 0;
+      fpsTimer = now;
+    }
+
+    drawOverlay();
+    animHandle = requestAnimationFrame(loop);
+  }
+
+  document.getElementById('btnAPlus').addEventListener('click', () => {
+    scoreA++; updateScores();
+  });
+  document.getElementById('btnBPlus').addEventListener('click', () => {
+    scoreB++; updateScores();
+  });
+</script>
+</body>
+</html>
