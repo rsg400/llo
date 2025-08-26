@@ -121,7 +121,7 @@
   const btnStop = document.getElementById('btnStop');
   const setBadge = (html)=> detBadge && (detBadge.innerHTML = html);
 
-  let detector = null; let running = false; let capReady = false;
+  let detector = null; let running = false;
 
   async function initDetector(){
     try{
@@ -139,6 +139,7 @@
       console.error(e);
       setBadge('<span class="dot" style="background:#ff5a6a"></span> Detector: Fehler');
       statusEl.textContent = 'Detector konnte nicht geladen werden (CDN).';
+      btnStart.disabled = false;
     }
   }
   initDetector();
@@ -175,7 +176,28 @@
   async function listCameras(){ try{ const devs=await navigator.mediaDevices.enumerateDevices(); const vids=devs.filter(d=>d.kind==='videoinput'); cameraSelect.innerHTML=''; vids.forEach((d,i)=>{ const o=document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||`Kamera ${i+1}`; cameraSelect.appendChild(o); }); }catch(e){ console.warn(e); }}
   function parseRes(v){ const [w,h]=v.split('x').map(Number); return {width:w,height:h}; }
 
-  async function startCamera(){ if(!detector){ alert('Detector ist nicht bereit.'); return; } stopCamera(); const {width,height}=parseRes(resSelect.value); const constraints={ audio:false, video:{ width:{ideal:width}, height:{ideal:height}, deviceId: cameraSelect.value?{exact:cameraSelect.value}:undefined, frameRate:{ideal:60,max:60} } }; try{ stream=await navigator.mediaDevices.getUserMedia(constraints); video.srcObject=stream; await video.play(); await listCameras(); resizeOverlay(); capReady=true; running=true; btnStart.disabled=true; btnStop.disabled=false; statusEl.textContent='Kamera läuft'; loop(); }catch(e){ console.error(e); alert('Kamera konnte nicht gestartet werden: '+e.message); statusEl.textContent='Kamerafehler'; }}
+  async function startCamera(){
+    stopCamera();
+    const {width,height}=parseRes(resSelect.value);
+    const constraints={ audio:false, video:{ width:{ideal:width}, height:{ideal:height}, deviceId: cameraSelect.value?{exact:cameraSelect.value}:undefined, frameRate:{ideal:60,max:60} } };
+    try{
+      stream=await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject=stream;
+      await video.play();
+      await listCameras();
+      resizeOverlay();
+      running=true;
+      btnStart.disabled=true;
+      btnStop.disabled=false;
+      statusEl.textContent='Kamera läuft';
+      loop();
+    }catch(e){
+      console.error(e);
+      alert('Kamera konnte nicht gestartet werden: '+e.message);
+      statusEl.textContent='Kamerafehler';
+      btnStart.disabled=false;
+    }
+  }
   function stopCamera(){ running=false; btnStart.disabled=false; btnStop.disabled=true; if(animHandle) cancelAnimationFrame(animHandle); if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } }
 
   btnStart.addEventListener('click', startCamera); btnStop.addEventListener('click', stopCamera);
@@ -296,7 +318,7 @@
     }
 
     const now = performance.now();
-    const result = await detector.detectForVideo(video, now);
+    const result = detector ? await detector.detectForVideo(video, now) : { detections: [] };
 
     if (result.detections.length){
       const d = result.detections[0];
