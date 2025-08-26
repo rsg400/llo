@@ -128,7 +128,11 @@
       const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.10/wasm");
       detector = await ObjectDetector.createFromOptions(fileset, {
         baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" },
+<<<<<<< codex/implement-real-time-tennis-ball-tracking-9xmtp6
+        scoreThreshold: 0.25,
+=======
         scoreThreshold: 0.35,
+>>>>>>> main
         categoryAllowlist: ['sports ball'],
         runningMode: 'VIDEO'
       });
@@ -183,17 +187,32 @@
   resSelect.addEventListener('change', ()=>{ if(stream) startCamera(); });
   navigator.mediaDevices?.getUserMedia?.({video:true,audio:false}).then(s=>{ s.getTracks().forEach(t=>t.stop()); listCameras(); }).catch(()=>{});
 
+<<<<<<< codex/implement-real-time-tennis-ball-tracking-9xmtp6
+  btnMarkCourt.addEventListener('click', ()=>{ courtPoly=[]; hoverPt=null; mode='court'; statusEl.textContent='Court: TL→TR→BR→BL'; drawOverlay(); });
+  btnCalibrate.addEventListener('click', ()=>{ calib.a=null; calib.b=null; mode='calib'; statusEl.textContent='Kalibrierung: Linie ziehen'; });
+  btnResetScores.addEventListener('click', ()=>{ scoreA=0; scoreB=0; updateScores(); });
+  const Modes={NONE:'none', COURT:'court', CALIB:'calib'}; let mode=Modes.NONE; let dragging=false; let hoverPt=null;
+=======
   btnMarkCourt.addEventListener('click', ()=>{ courtPoly=[]; mode='court'; statusEl.textContent='Court: TL→TR→BR→BL'; drawOverlay(); });
   btnCalibrate.addEventListener('click', ()=>{ calib.a=null; calib.b=null; mode='calib'; statusEl.textContent='Kalibrierung: Linie ziehen'; });
   btnResetScores.addEventListener('click', ()=>{ scoreA=0; scoreB=0; updateScores(); });
   const Modes={NONE:'none', COURT:'court', CALIB:'calib'}; let mode=Modes.NONE; let dragging=false;
+>>>>>>> main
 
   function updateScores(){ scoreAEl.textContent=scoreA; scoreBEl.textContent=scoreB; }
   function eventToVideoXY(ev){ const r=overlay.getBoundingClientRect(); const x=(ev.clientX-r.left)*(video.videoWidth/r.width); const y=(ev.clientY-r.top)*(video.videoHeight/r.height); return {x,y}; }
   overlay.addEventListener('pointerdown', e=>{ if(mode===Modes.CALIB){ dragging=true; calib.a=eventToVideoXY(e); calib.b=calib.a; drawOverlay(); } });
+<<<<<<< codex/implement-real-time-tennis-ball-tracking-9xmtp6
+  overlay.addEventListener('pointermove', e=>{ if(mode===Modes.CALIB && dragging){ calib.b=eventToVideoXY(e); drawOverlay(); } else if(mode===Modes.COURT){ hoverPt=eventToVideoXY(e); drawOverlay(); } });
+  overlay.addEventListener('pointerleave', ()=>{ if(mode===Modes.COURT){ hoverPt=null; drawOverlay(); } });
+  overlay.addEventListener('pointerup', ()=>{ if(mode===Modes.CALIB && dragging){ dragging=false; if(calib.a&&calib.b){ const px=Math.hypot(calib.a.x-calib.b.x, calib.a.y-calib.b.y); const meters=parseFloat(knownMetersInput.value)||6.4; pxPerMeter=px/meters; calib.pixelsPerMeter=pxPerMeter; pxmEl.textContent=`${px.toFixed(1)} px / ${meters} m → ${pxPerMeter.toFixed(1)} px/m`; mode=Modes.NONE; statusEl.textContent='Kalibrierung gespeichert'; } } });
+  overlay.addEventListener('click', e=>{ if(mode===Modes.COURT){ courtPoly.push(eventToVideoXY(e)); drawOverlay(); if(courtPoly.length===4){ mode=Modes.NONE; statusEl.textContent='Court gespeichert'; } } });
+  overlay.addEventListener('contextmenu', e=>{ if(mode===Modes.COURT){ e.preventDefault(); courtPoly.pop(); drawOverlay(); } });
+=======
   overlay.addEventListener('pointermove', e=>{ if(mode===Modes.CALIB && dragging){ calib.b=eventToVideoXY(e); drawOverlay(); } });
   overlay.addEventListener('pointerup', ()=>{ if(mode===Modes.CALIB && dragging){ dragging=false; if(calib.a&&calib.b){ const px=Math.hypot(calib.a.x-calib.b.x, calib.a.y-calib.b.y); const meters=parseFloat(knownMetersInput.value)||6.4; pxPerMeter=px/meters; calib.pixelsPerMeter=pxPerMeter; pxmEl.textContent=`${px.toFixed(1)} px / ${meters} m → ${pxPerMeter.toFixed(1)} px/m`; mode=Modes.NONE; statusEl.textContent='Kalibrierung gespeichert'; } } });
   overlay.addEventListener('click', e=>{ if(mode===Modes.COURT){ courtPoly.push(eventToVideoXY(e)); drawOverlay(); if(courtPoly.length===4){ mode=Modes.NONE; statusEl.textContent='Court gespeichert'; } } });
+>>>>>>> main
 
   function sideBelongsToA(side){
     const aTop = chkSwap.checked;
@@ -222,6 +241,30 @@
       courtPoly.forEach((p,i)=>{ i?octx.lineTo(p.x,p.y):octx.moveTo(p.x,p.y); });
       if (courtPoly.length === 4) octx.closePath();
       octx.stroke();
+<<<<<<< codex/implement-real-time-tennis-ball-tracking-9xmtp6
+
+      octx.fillStyle = 'rgba(0,255,0,.9)';
+      octx.font = '12px sans-serif';
+      courtPoly.forEach((p,i)=>{
+        octx.beginPath();
+        octx.arc(p.x,p.y,5,0,Math.PI*2);
+        octx.fill();
+        octx.fillStyle = '#000';
+        octx.fillText(String(i+1), p.x-3, p.y+4);
+        octx.fillStyle = 'rgba(0,255,0,.9)';
+      });
+    }
+
+    if (mode===Modes.COURT && hoverPt){
+      octx.strokeStyle = 'rgba(0,255,0,.5)';
+      octx.beginPath();
+      octx.moveTo(hoverPt.x-6, hoverPt.y);
+      octx.lineTo(hoverPt.x+6, hoverPt.y);
+      octx.moveTo(hoverPt.x, hoverPt.y-6);
+      octx.lineTo(hoverPt.x, hoverPt.y+6);
+      octx.stroke();
+=======
+>>>>>>> main
     }
 
     if (calib.a && calib.b){
@@ -278,6 +321,22 @@
     if (result.detections.length){
       const d = result.detections[0];
       const box = d.boundingBox;
+<<<<<<< codex/implement-real-time-tennis-ball-tracking-9xmtp6
+      const x = box.originX * video.videoWidth;
+      const y = box.originY * video.videoHeight;
+      const w = box.width * video.videoWidth;
+      const h = box.height * video.videoHeight;
+      const cx = x + w/2;
+      const cy = y + h/2;
+      const r = Math.max(w,h) / 2;
+      radiusEl.textContent = r.toFixed(1);
+
+      lastDetection = {
+        xMin: x,
+        yMin: y,
+        width: w,
+        height: h
+=======
       const cx = box.xCenter * video.videoWidth;
       const cy = box.yCenter * video.videoHeight;
       const r = (box.width * video.videoWidth) / 2;
@@ -288,6 +347,7 @@
         yMin: box.originY * video.videoHeight,
         width: box.width * video.videoWidth,
         height: box.height * video.videoHeight
+>>>>>>> main
       };
 
       if (lastPos){
